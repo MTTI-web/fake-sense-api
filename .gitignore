@@ -1,0 +1,21 @@
+# Python Virtual Environment
+venv/
+
+# IDE and editor directories
+.vscode/
+
+# Compiled Python files
+__pycache__/
+*.pyc
+
+# Generated or large files
+model.pkl
+
+# Data files (if large, sensitive, or easily reproducible)
+# data/
+
+# Environment variables (contains secrets and machine-specific settings)
+.env
+
+# Log files
+*.log

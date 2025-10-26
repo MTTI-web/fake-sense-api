@@ -17,7 +17,7 @@ data = {
     ],
     "label": [0, 1, 0, 1],  # 0 for "real", 1 for "fake"
 }
-df = pd.DataFrame(data)
+df = pd.read_csv("./data/dataset.csv")
 
 # Create a scikit-learn pipeline
 # This pipeline first converts text to numbers (TF-IDF), then classifies it.

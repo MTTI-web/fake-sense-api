@@ -7,17 +7,13 @@ import traceback  # For detailed error logging
 # Initialize the Flask application
 app = Flask(__name__)
 
-# --- CORS Configuration ---
-# This is the key change. We enable CORS for the entire app,
-# allowing your browser extension (from any origin) to make requests.
 CORS(app)
-# -------------------------
 
 # Load the trained machine learning model from the file
 print("Loading the model...")
 try:
     # Ensure you have a 'fake_review_model.pkl' file in the same directory
-    model = joblib.load("fake_review_model.pkl")
+    model = joblib.load("model.pkl")
     print("Model loaded successfully.")
 except FileNotFoundError:
     print(
