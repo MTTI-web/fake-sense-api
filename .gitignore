@@ -9,7 +9,7 @@ __pycache__/
 *.pyc
 
 # Generated or large files
-model.pkl
+# model.pkl
 
 # Data files (if large, sensitive, or easily reproducible)
 # data/
