@@ -25,15 +25,18 @@ def emoji_to_text(text):
 
 # %%
 from sklearn.compose import ColumnTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
 
+# This is the correct and standard way to define the preprocessor
 preprocessor = ColumnTransformer(
     transformers=[
+        # Use TfidfVectorizer's built-in preprocessor argument
         ("tfidf", TfidfVectorizer(preprocessor=emoji_to_text), "text"),
-        # 'passthrough' means the 'rating' column is not changed.
-        # You could also use a scaler like StandardScaler()
+        # Pass through the numeric 'rating' column
         ("numeric", "passthrough", ["rating"]),
     ]
 )
+
 
 # Create the full pipeline
 pipe = Pipeline(
