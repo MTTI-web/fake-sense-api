@@ -5,8 +5,10 @@ from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import RandomForestClassifier
 import numpy as np
-import emoji
+
+from helpers import emoji_to_text
 
 df = pd.read_csv("./data/dataset.csv")
 df.head(3)
@@ -17,11 +19,6 @@ y = df["label"] == "CG"
 y = y.astype(int)
 
 y.values
-
-
-def emoji_to_text(text):
-    return emoji.demojize(text)
-
 
 # %%
 from sklearn.compose import ColumnTransformer
@@ -34,7 +31,8 @@ preprocessor = ColumnTransformer(
         ("tfidf", TfidfVectorizer(preprocessor=emoji_to_text), "text"),
         # Pass through the numeric 'rating' column
         ("numeric", "passthrough", ["rating"]),
-    ]
+    ],
+    remainder="drop"
 )
 
 
@@ -42,7 +40,8 @@ preprocessor = ColumnTransformer(
 pipe = Pipeline(
     [
         ("preprocessor", preprocessor),
-        ("classifier", LogisticRegression(C=0.1, max_iter=1000)),
+        # ("classifier", LogisticRegression(C=np.float64(4.641588833612782), max_iter=1000)),
+        ("classifier", RandomForestClassifier())
     ]
 )
 
@@ -50,11 +49,6 @@ pipe = Pipeline(
 pipe.fit(X, y)
 pred = pipe.predict(X)
 pred
-
-# %% seeing vocab
-v = TfidfVectorizer()
-transformed = v.fit_transform(X)
-v.vocabulary_
 
 # %%
 from sklearn.metrics import precision_score, recall_score
@@ -68,18 +62,44 @@ print("recall:", recall)
 # %%
 from sklearn.model_selection import GridSearchCV
 
+# Updated parameter grid
+param_grid = {
+    "classifier__C": np.logspace(-4, 3, 10),
+    "classifier__class_weight": [{0: v, 1: 1.0} for v in np.linspace(0.1, 0.6, 10)],
+}
+
+param_grid_forest = {
+    'classifier__n_estimators': [100, 200, 300],
+    'classifier__max_depth': [10, 20, None],
+    'classifier__min_samples_split': [2, 5, 10],
+    'classifier__max_features': ['sqrt', 'log2']
+}
+
+# Your GridSearchCV object remains the same
 grid = GridSearchCV(
     estimator=pipe,
-    param_grid={"classifier__C": np.logspace(-4, 3, 10)},
-    cv=3,
+    param_grid=param_grid_forest,
+    cv=5,
+    n_jobs=-1
 )
 
 grid.fit(X, y)
 
-pd.DataFrame(grid.cv_results_)
+print("Best parameters found: ", grid.best_params_)
+
+# Display the results
+results_df = pd.DataFrame(grid.cv_results_)
+
+# #  %% PRECISION AND RECALL OF THE BEST MODEL
+g_pred = grid.predict_proba(X)
+
+# p = precision_score(g_pred, y)
+# r = recall_score(g_pred, y)
+
+# print("preicision:", p)
+# print("recall:", r)
 
 # %%
-g_pred = grid.predict_proba(X)
 from sklearn.metrics import roc_curve, auc
 import matplotlib.pyplot as plt
 
@@ -110,7 +130,7 @@ plt.show()
 # %%
 import joblib
 
-joblib.dump(grid, "model.pkl")
+joblib.dump(grid, "model_forest.pkl")
 print("Dummy model 'model.pkl' created successfully!")
 
 # %%

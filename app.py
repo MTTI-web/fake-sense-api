@@ -54,6 +54,7 @@ def predict():
         # The data should be in the format:
         # {"reviews": [{"text": ..., "rating": ...}, ...]}
         reviews = data.get("reviews", [])
+        print(reviews)
 
         if not reviews or not isinstance(reviews, list):
             return jsonify({"error": "'reviews' must be a non-empty list."}), 400
