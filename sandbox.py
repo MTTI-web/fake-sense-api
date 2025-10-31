@@ -40,8 +40,8 @@ preprocessor = ColumnTransformer(
 pipe = Pipeline(
     [
         ("preprocessor", preprocessor),
-        # ("classifier", LogisticRegression(C=np.float64(4.641588833612782), max_iter=1000)),
-        ("classifier", RandomForestClassifier())
+        ("classifier", LogisticRegression(C=np.float64(4.641588833612782), max_iter=1000)),
+        # ("classifier", RandomForestClassifier())
     ]
 )
 
@@ -68,17 +68,10 @@ param_grid = {
     "classifier__class_weight": [{0: v, 1: 1.0} for v in np.linspace(0.1, 0.6, 10)],
 }
 
-param_grid_forest = {
-    'classifier__n_estimators': [100, 200, 300],
-    'classifier__max_depth': [10, 20, None],
-    'classifier__min_samples_split': [2, 5, 10],
-    'classifier__max_features': ['sqrt', 'log2']
-}
-
 # Your GridSearchCV object remains the same
 grid = GridSearchCV(
     estimator=pipe,
-    param_grid=param_grid_forest,
+    param_grid=param_grid,
     cv=5,
     n_jobs=-1
 )
@@ -130,7 +123,7 @@ plt.show()
 # %%
 import joblib
 
-joblib.dump(grid, "model_forest.pkl")
+joblib.dump(grid, "model.pkl")
 print("Dummy model 'model.pkl' created successfully!")
 
 # %%
