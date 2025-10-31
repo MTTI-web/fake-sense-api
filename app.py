@@ -101,15 +101,6 @@ TRAIN_DATA_PATH = os.getenv("TRAIN_DATA_PATH", "./data/dataset.csv")
 try:
     raw_df = pd.read_csv(TRAIN_DATA_PATH)
 
-    # Case-insensitive rename to expected lowercase names
-    rename_map = {}
-    for c in raw_df.columns:
-        cl = c.lower()
-        if cl in {"text", "label", "rating", "category"}:
-            rename_map[c] = cl
-    if rename_map:
-        raw_df = raw_df.rename(columns=rename_map)
-
     # Ensure required columns for quiz
     if not {"text", "label"}.issubset(raw_df.columns):
         print("CSV must contain 'text' and 'label' columns.")
@@ -259,5 +250,7 @@ def quiz_questions():
 if __name__ == "__main__":
     # Accept both /quiz-questions and /quiz-questions/ thanks to strict_slashes=False on the route [web:2].
     app.run(
-        host="0.0.0.0", port=5051, debug=True
+        host="0.0.0.0",
+        port=5051,
+        # debug=True
     )  # pandas sampling docs referenced above for selection logic [web:15]
