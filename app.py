@@ -8,9 +8,20 @@ import pandas as pd
 import os
 import random
 
+# Ensure the training-time helper is importable for the pickled pipeline
+# The pickled TfidfVectorizer(preprocessor=helpers.emoji_to_text) needs this symbol at load/use time
+try:
+    import helpers as _helpers  # module must exist as it did during training
+    from helpers import (
+        emoji_to_text as _unused_emoji_to_text,
+    )  # ensure symbol is resolvable
+except Exception:
+    _helpers = None
+    _unused_emoji_to_text = None
+
 
 # -----------------------------
-# Utilities
+# Utilities (used by quiz only)
 # -----------------------------
 def emoji_to_text(text):
     return emoji.demojize(text or "")
@@ -42,56 +53,51 @@ def stratified_sample_by_answer(df, n):
 
     groups = list(df.groupby("answer"))
     if len(groups) <= 1:
-        # Only one class available; return a regular sample
-        return df.sample(
-            n=min(n, len(df)), replace=False, random_state=None
-        )  # pandas sampling [web:15]
+        return df.sample(n=min(n, len(df)), replace=False, random_state=None)
 
-    # Aim for an even split across classes
     per = max(1, n // len(groups))
     parts = []
     for _, g in groups:
         k = min(per, len(g))
-        parts.append(
-            g.sample(n=k, replace=False, random_state=None)
-        )  # group-wise sample [web:116]
-
+        parts.append(g.sample(n=k, replace=False, random_state=None))
     out = pd.concat(parts, axis=0)
 
-    # Fill remainder to reach n with leftover rows if needed
     if len(out) < n:
         remaining = df.drop(out.index)
         if not remaining.empty:
             k = min(n - len(out), len(remaining))
             out = pd.concat(
                 [out, remaining.sample(n=k, replace=False, random_state=None)], axis=0
-            )  # pandas sampling [web:15]
+            )
 
-    # Shuffle and trim to n
-    return out.sample(frac=1.0, replace=False, random_state=None).head(
-        n
-    )  # pandas sampling [web:15]
+    return out.sample(frac=1.0, replace=False, random_state=None).head(n)
 
 
 # -----------------------------
 # App init
 # -----------------------------
 app = Flask(__name__)
-CORS(app)  # enable during development [web:2]
+CORS(app)
 
 # -----------------------------
 # Load model
 # -----------------------------
 print("Loading the model...")
+model = None
+threshold = 0.5
 try:
-    model = joblib.load("model.pkl")
+    artifact = joblib.load(
+        "model_logreg_calibrated.pkl"
+    )  # {'model': CalibratedClassifierCV(Pipeline(...)), 'threshold': float, ...}
+    model = artifact["model"]
+    threshold = float(artifact.get("threshold", 0.5))
     print("Model loaded successfully.")
 except FileNotFoundError:
-    print("Error: 'model.pkl' not found. The API will not work without the model file.")
-    model = None
+    print(
+        "Error: 'model_logreg_calibrated.pkl' not found. The API will not work without the model file."
+    )
 except Exception as e:
     print(f"Error loading model: {e}")
-    model = None
 
 # -----------------------------
 # Load training data (CSV schema: category,rating,label,text)
@@ -101,25 +107,17 @@ TRAIN_DATA_PATH = os.getenv("TRAIN_DATA_PATH", "./data/dataset.csv")
 try:
     raw_df = pd.read_csv(TRAIN_DATA_PATH)
 
-    # Ensure required columns for quiz
     if not {"text", "label"}.issubset(raw_df.columns):
         print("CSV must contain 'text' and 'label' columns.")
         train_df = None
     else:
-        # Keep only quiz-relevant columns and clean
         train_df = raw_df[["text", "label"]].dropna()
         train_df["text"] = train_df["text"].astype(str).map(emoji_to_text).str.strip()
         train_df = train_df[train_df["text"].str.len() > 0]
-
-        # Normalize labels and drop unknowns so they don't bias to a single class
         train_df["answer"] = train_df["label"].map(normalize_label)
         train_df = train_df.dropna(subset=["answer"])
-
-        # Optional: cap long texts for quiz readability
         train_df["text"] = train_df["text"].str.slice(0, 500)
         train_df.reset_index(drop=True, inplace=True)
-
-        # Log class distribution
         print(
             "Quiz class distribution:",
             train_df["answer"].value_counts(dropna=False).to_dict(),
@@ -137,32 +135,44 @@ except Exception as e:
 def predict():
     """
     Expects JSON: {"reviews": [{"text": "...", "rating": 4.5, "category": "..."} , ...]}.
-    The model should be a pipeline that knows how to handle the provided keys.
+    Returns: {"scores": [p1, p2, ...]} where each p is probability of "Fake".
     """
-    if not model:
-        return (
-            jsonify({"error": "Model is not loaded, check server logs."}),
-            500,
-        )  # Flask jsonify [web:2]
+    if model is None:
+        return jsonify({"error": "Model is not loaded, check server logs."}), 500
 
     try:
-        data = request.get_json(force=True)
+        data = request.get_json(force=True) or {}
         reviews = data.get("reviews", [])
         if not reviews or not isinstance(reviews, list):
-            return (
-                jsonify({"error": "'reviews' must be a non-empty list."}),
-                400,
-            )  # Flask jsonify [web:2]
+            return jsonify({"error": "'reviews' must be a non-empty list."}), 400
 
         df = pd.DataFrame(reviews)
-        # The model pipeline should align columns internally (e.g., via ColumnTransformer)
+
+        # Validate required columns expected by the ColumnTransformer: text and rating
+        required = {"text", "rating"}
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            return jsonify({"error": f"Missing required fields: {missing}"}), 400
+
+        # Coerce types to match training expectations
+        df = df.copy()
+        df["text"] = df["text"].astype(str)
+        df["rating"] = pd.to_numeric(df["rating"], errors="coerce")
+
+        # Reject rows with NaN rating to avoid estimator errors
+        if df["rating"].isna().any():
+            return jsonify({"error": "All 'rating' values must be numeric."}), 400
+
+        # Predict calibrated probabilities
         preds = model.predict_proba(df)
         scores = preds[:, 1].tolist()  # probability of the positive/"fake" class
-        return jsonify({"scores": scores})  # Flask jsonify [web:2]
+
+        # Keep response identical to previous frontend expectations
+        return jsonify({"scores": scores})
     except Exception as e:
         print("An error occurred during prediction:")
         print(traceback.format_exc())
-        return jsonify({"error": str(e)}), 400  # Flask jsonify [web:2]
+        return jsonify({"error": str(e)}), 400
 
 
 @app.route("/quiz-questions", methods=["GET"], strict_slashes=False)
@@ -175,10 +185,7 @@ def quiz_questions():
       - require_mix: 'true'/'false' (default 'true'); if true and only one class exists, returns 422 with distribution
     """
     if train_df is None or train_df.empty:
-        return (
-            jsonify({"error": "Training data not available for quiz."}),
-            500,
-        )  # Flask jsonify [web:2]
+        return jsonify({"error": "Training data not available for quiz."}), 500
 
     try:
         n = request.args.get("n", default=10, type=int)
@@ -204,16 +211,12 @@ def quiz_questions():
                     }
                 ),
                 422,
-            )  # Flask jsonify [web:2]
+            )
 
         if stratify and has_genuine and has_fake:
-            sample = stratified_sample_by_answer(
-                train_df, n
-            )  # group-wise sample [web:116]
+            sample = stratified_sample_by_answer(train_df, n)
         else:
-            sample = train_df.sample(
-                n=n, replace=False, random_state=None
-            )  # pandas sampling [web:15]
+            sample = train_df.sample(n=n, replace=False, random_state=None)
 
         questions = []
         for i, row in enumerate(sample.itertuples(index=False), start=1):
@@ -237,20 +240,15 @@ def quiz_questions():
                 "distribution": dist,
                 "single_class": not (has_genuine and has_fake),
             }
-        )  # Flask jsonify [web:2]
+        )
     except Exception as e:
         print("An error occurred building quiz questions:")
         print(traceback.format_exc())
-        return jsonify({"error": str(e)}), 400  # Flask jsonify [web:2]
+        return jsonify({"error": str(e)}), 400
 
 
 # -----------------------------
 # Entrypoint
 # -----------------------------
 if __name__ == "__main__":
-    # Accept both /quiz-questions and /quiz-questions/ thanks to strict_slashes=False on the route [web:2].
-    app.run(
-        host="0.0.0.0",
-        port=5051,
-        # debug=True
-    )  # pandas sampling docs referenced above for selection logic [web:15]
+    app.run(host="0.0.0.0", port=5051, debug=True)
