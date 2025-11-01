@@ -152,55 +152,6 @@ idx = np.where(precision[:-1] >= target_precision)[0]
 operating_threshold = float(thresholds[idx[0]] if len(idx) else 0.5)
 
 # %%
-# ... (your code to calculate operating_threshold) ...
-idx = np.where(precision[:-1] >= target_precision)[0]
-operating_threshold = float(thresholds[idx[0]] if len(idx) else 0.5)
-
-# --- ADD THIS ENTIRE BLOCK ---
-try:
-    print("\nGenerating Precision-Recall curve graph...")
-    # Find the recall and precision for our chosen threshold
-    # Note: np.where returns a tuple, so we access the first element
-    chosen_point_idx = idx[0] if len(idx) > 0 else -1
-    
-    # Handle case where no threshold meets the target
-    if chosen_point_idx == -1:
-        print("Warning: No threshold met target precision. Marking best-effort point.")
-        # Fallback: find point with highest precision
-        chosen_point_idx = np.argmax(precision)
-
-    chosen_recall = recall[chosen_point_idx]
-    chosen_precision = precision[chosen_point_idx]
-    
-    # Create the plot
-    plt.figure(figsize=(10, 7))
-    plt.plot(recall, precision, 'b-', label='Precision-Recall curve')
-    
-    # Draw the target precision line
-    plt.axhline(y=target_precision, color='r', linestyle='--', 
-                label=f'Target Precision ({target_precision*100}%)')
-    
-    # Mark the chosen operating point
-    plt.plot(chosen_recall, chosen_precision, 'ro', 
-             label=f'Chosen Threshold ({operating_threshold:.2f})\n'
-                   f'Precision: {chosen_precision:.2f}, Recall: {chosen_recall:.2f}')
-    
-    plt.xlabel('Recall')
-    plt.ylabel('Precision')
-    plt.title('Precision-Recall Curve for Calibrated Model')
-    plt.legend()
-    plt.grid(True)
-    
-    # Save the figure
-    output_filename = 'precision_recall_curve.png'
-    plt.savefig(output_filename)
-    print(f"Successfully saved graph to {output_filename}")
-    
-except Exception as e:
-    print(f"Could not generate graph: {e}")
-# --- END ADDED BLOCK ---
-
-# %%
 # Persist single artifact
 artifact = {
     "model": calibrator,  # Calibrated, ready for predict_proba
