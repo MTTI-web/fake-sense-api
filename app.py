@@ -7,7 +7,7 @@ import emoji
 import pandas as pd
 import os
 import random
-import numpy as np # Added for helper functions
+import numpy as np  # Added for helper functions
 
 # Ensure the training-time helper is importable for the pickled pipeline
 # The pickled TfidfVectorizer(preprocessor=helpers.emoji_to_text) needs this symbol at load/use time
@@ -15,6 +15,7 @@ try:
     import helpers as _helpers  # module must exist as it did during training
     from helpers import (
         emoji_to_text as _unused_emoji_to_text,
+        RepetitionFeatureExtractor,
     )  # ensure symbol is resolvable
 except Exception:
     _helpers = None
@@ -106,27 +107,33 @@ explainer_components = {}
 if model:
     try:
         # 1. Get the fitted pipeline from the calibrator
-        pipeline = model.estimator
-        
+        pipeline = getattr(model, "base_estimator", None)
+        if pipeline is None:
+            pipeline = getattr(model, "estimator", None)
+        if pipeline is None:
+            raise ValueError(
+                "Could not access underlying pipeline from CalibratedClassifierCV"
+            )
+
         # 2. Get the preprocessor (ColumnTransformer)
-        preprocessor = pipeline.named_steps['preprocessor']
-        
+        preprocessor = pipeline.named_steps["preprocessor"]
+
         # 3. Get the final logistic regression classifier
-        classifier = pipeline.named_steps['classifier']
-        
+        classifier = pipeline.named_steps["classifier"]
+
         # 4. Get the coefficients (weights) for the "Fake" class (index [0])
         #    (Class 0 is 'Genuine', Class 1 is 'Fake')
         coefficients = classifier.coef_[0]
-        
+
         # 5. Get all feature names in the correct order from the preprocessor
         feature_names = preprocessor.get_feature_names_out()
-        
+
         # Store them for later use
         explainer_components = {
             "preprocessor": preprocessor,
             "coefficients": coefficients,
             "feature_names": feature_names,
-            "model": model, # Store the full model for prediction
+            "model": model,  # Store the full model for prediction
         }
         print("Explainer initialized successfully.")
     except Exception as e:
@@ -134,16 +141,18 @@ if model:
 
 # --- NEW: EXPLAINER HELPER FUNCTIONS ---
 
+
 def _format_feature_name(name):
     """Cleans up the raw scikit-learn feature name."""
-    if name.startswith('tfidf__'):
+    if name.startswith("tfidf__"):
         return f"Word: '{name[7:]}'"
     # This check works even if the feature name is 'repetition_feature__x0'
-    if name.startswith('repetition_feature__'):
+    if name.startswith("repetition_feature__"):
         return "Repetition Score"
-    if name.startswith('numeric__'):
+    if name.startswith("numeric__"):
         return "Star Rating"
     return name
+
 
 def get_explanation_data(input_df, top_n=5):
     """
@@ -152,7 +161,7 @@ def get_explanation_data(input_df, top_n=5):
     """
     if not explainer_components:
         return {"error": "Explainer is not initialized."}
-    
+
     try:
         # Get components
         preprocessor = explainer_components["preprocessor"]
@@ -161,22 +170,22 @@ def get_explanation_data(input_df, top_n=5):
 
         # 1. Transform the raw input (text, rating) into a feature vector
         transformed_vector = preprocessor.transform(input_df)
-        
+
         # 2. Get the dense feature values (e.g., TF-IDF scores, ratio, rating)
         feature_values = transformed_vector.toarray()[0]
-        
+
         # 3. Calculate contribution: (Contribution = Value * Weight)
         contributions = feature_values * coefficients
-        
+
         # 4. Map names to contributions
         contrib_list = list(zip(feature_names, contributions))
-        
+
         # 5. Filter out features that had zero contribution (e.g., words not in review)
         contrib_list = [c for c in contrib_list if c[1] != 0]
-        
+
         # 6. Sort to find top drivers
         contrib_list.sort(key=lambda x: x[1], reverse=True)
-        
+
         # 7. Format the output
         top_positive = contrib_list[:top_n]
         top_negative = sorted(contrib_list, key=lambda x: x[1])[:top_n]
@@ -184,22 +193,25 @@ def get_explanation_data(input_df, top_n=5):
         return {
             "top_fake_drivers": [
                 {"feature": _format_feature_name(name), "contribution": round(val, 3)}
-                for name, val in top_positive if val > 0
+                for name, val in top_positive
+                if val > 0
             ],
             "top_genuine_drivers": [
                 {"feature": _format_feature_name(name), "contribution": round(val, 3)}
-                for name, val in top_negative if val < 0
-            ]
+                for name, val in top_negative
+                if val < 0
+            ],
         }
-    
+
     except Exception as e:
         print(f"Error during explanation: {e}")
         traceback.print_exc()
         return {"error": str(e)}
 
+
 def generate_explanation_text(explanation_data, genuine_label):
     """Generates a simple, human-readable text explanation."""
-    
+
     if "error" in explanation_data:
         return "Could not generate an explanation."
 
@@ -211,31 +223,32 @@ def generate_explanation_text(explanation_data, genuine_label):
             # Explain why it's FAKE
             if not top_fake:
                 return f"The model rated this as **Fake**, but could not identify a strong reason."
-            
-            top_driver = top_fake[0]['feature']
+
+            top_driver = top_fake[0]["feature"]
             text = f"The model rated this as **Fake**. The strongest 'Fake' factor was the **{top_driver}**."
-            
+
             if top_genuine:
-                neg_driver = top_genuine[0]['feature']
+                neg_driver = top_genuine[0]["feature"]
                 text += f" This outweighed 'Genuine' factors like the **{neg_driver}**."
             return text
-        
+
         else:
             # Explain why it's GENUINE
             if not top_genuine:
                 return f"The model rated this as **Genuine**, but could not identify a strong reason."
-            
-            top_driver = top_genuine[0]['feature']
+
+            top_driver = top_genuine[0]["feature"]
             text = f"The model rated this as **Genuine**. The strongest 'Genuine' factor was the **{top_driver}**."
-            
+
             if top_fake:
-                pos_driver = top_fake[0]['feature']
+                pos_driver = top_fake[0]["feature"]
                 text += f" This outweighed 'Fake' factors like the **{pos_driver}**."
             return text
-            
+
     except Exception as e:
         print(f"Error generating text explanation: {e}")
         return "An error occurred while summarizing the explanation."
+
 
 # --- END NEW EXPLAINER FUNCTIONS ---
 
@@ -256,8 +269,8 @@ try:
     else:
         # Keep 'rating' so the explainer can use it
         train_df = raw_df[["text", "label", "rating"]].dropna()
-    # --- END MODIFICATION ---
-        
+        # --- END MODIFICATION ---
+
         train_df["text"] = train_df["text"].astype(str).map(emoji_to_text).str.strip()
         train_df = train_df[train_df["text"].str.len() > 0]
         train_df["answer"] = train_df["label"].map(normalize_label)
@@ -368,30 +381,32 @@ def quiz_questions():
         for i, row in enumerate(sample.itertuples(index=False), start=1):
             choices = ["Genuine", "Fake"]
             random.shuffle(choices)
-            correct_label = row.answer # This is "Genuine" or "Fake"
+            correct_label = row.answer  # This is "Genuine" or "Fake"
             answer_index = choices.index(correct_label)
-            
+
             # --- NEW: GENERATE EXPLANATION ---
             # Create the 1-row DataFrame that the model expects
-            explainer_input_df = pd.DataFrame([
-                {"text": row.text, "rating": row.rating}
-            ])
-            
+            explainer_input_df = pd.DataFrame(
+                [{"text": row.text, "rating": row.rating}]
+            )
+
             # Get the raw explanation data
             explanation_data = get_explanation_data(explainer_input_df)
-            
+
             # Get the simple text explanation
-            explanation_text = generate_explanation_text(explanation_data, correct_label)
+            explanation_text = generate_explanation_text(
+                explanation_data, correct_label
+            )
             # --- END NEW BLOCK ---
-            
+
             questions.append(
                 {
                     "qid": f"q{i}",
                     "prompt": row.text,
                     "choices": choices,
                     "answer_index": answer_index,
-                    "explanation_data": explanation_data, # NEW: For detailed UI
-                    "explanation_text": explanation_text  # NEW: For simple text display
+                    "explanation_data": explanation_data,  # NEW: For detailed UI
+                    "explanation_text": explanation_text,  # NEW: For simple text display
                 }
             )
 

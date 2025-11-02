@@ -25,49 +25,7 @@ import matplotlib.pyplot as plt
 import re
 
 # %%
-from helpers import emoji_to_text
-
-
-# --- ADDED ---
-# This is our new class to calculate the "Unique Word Ratio" feature.
-# It checks for repetition, regardless of what the words are.
-class RepetitionFeatureExtractor(BaseEstimator, TransformerMixin):
-    """
-    Creates a feature that is the ratio of unique words to total words.
-    A low ratio (e.g., 0.2) indicates high repetition (e.g., "newword newword newword").
-    A high ratio (e.g., 1.0) indicates no repetition.
-    """
-    def __init__(self):
-        pass
-
-    def fit(self, X, y=None):
-        # We don't need to "learn" anything, so we just return self
-        return self
-
-    def _get_unique_word_ratio(self, text):
-        """Calculates the unique word ratio for a single string."""
-        # Find all "words" (sequences of letters/numbers)
-        words = re.findall(r'\b\w+\b', (text or "").lower())
-        
-        # If the review is empty or has no words, return a neutral score
-        if not words:
-            return 0.5  # Using 0.5 as a neutral "middle ground"
-        
-        total_words = len(words)
-        unique_words = len(set(words))
-        
-        # This is our new feature:
-        return unique_words / total_words
-
-    def transform(self, X_series, y=None):
-        """
-        Applies the ratio calculation to every review in the 'text' column.
-        The output must be a 2D numpy array for scikit-learn.
-        """
-        # 'X_series' will be the 'text' column from the DataFrame
-        return X_series.apply(self._get_unique_word_ratio).values.reshape(-1, 1)
-
-# --- END ADDED ---
+from helpers import emoji_to_text, RepetitionFeatureExtractor
 
 
 # %%
